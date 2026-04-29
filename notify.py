@@ -35,37 +35,43 @@ def compute_due(df):
             except:
                 last_completed = None
 
-        ref_date = last_completed or (
-            datetime.fromisoformat(str(t['date_scheduled'])).date()
-            if t['date_scheduled'] else None
-        )
-
         due_date = None
 
-        freq = t['frequency_months']
+        # Se já concluiu → calcula próximo vencimento
+        if last_completed:
+            freq = t['frequency_months']
 
-        if ref_date and pd.notna(freq):
-            try:
-                freq = int(freq)
-            except:
-                freq = 0
+            if pd.notna(freq):
+                try:
+                    freq = int(freq)
+                except:
+                    freq = 0
 
-            if freq > 0:
-                month = ref_date.month - 1 + freq
-                year = ref_date.year + month // 12
-                month = month % 12 + 1
-                day = min(ref_date.day, 28)
-                due_date = datetime(year, month, day).date()
+                if freq > 0:
+                    month = last_completed.month - 1 + freq
+                    year = last_completed.year + month // 12
+                    month = month % 12 + 1
+                    day = min(last_completed.day, 28)
+                    due_date = datetime(year, month, day).date()
+
+        # Se NÃO concluiu → usa a data agendada (ESSENCIAL)
+        else:
+            if pd.notna(t['date_scheduled']) and str(t['date_scheduled']).strip() != "":
+                try:
+                    due_date = datetime.fromisoformat(str(t['date_scheduled'])).date()
+                except:
+                    due_date = None
 
         status = 'Concluído' if pd.notna(t['date_completed']) and str(t['date_completed']).strip() != "" else 'Pendente'
 
         if due_date:
-            if today > due_date and status == 'Pendente':
-                alerts.append(('Atrasado', t, due_date, (today - due_date).days))
-            else:
-                days_left = (due_date - today).days
-                if 0 <= days_left <= 7 and status == 'Pendente':
-                    alerts.append(('Próximo', t, due_date, days_left))
+            if status == 'Pendente':
+                if today > due_date:
+                    alerts.append(('Atrasado', t, due_date, (today - due_date).days))
+                else:
+                    days_left = (due_date - today).days
+                    if 0 <= days_left <= 7:
+                        alerts.append(('Próximo', t, due_date, days_left))
 
     return alerts
 
@@ -82,7 +88,7 @@ def send_email(to_email, subject, body):
         s.send_message(msg)
 
 def main():
-    print("Iniciando notify.py")
+    print("Resumo enviado ao gestor com sucesso.")
 
     if not GESTOR_EMAIL:
         print("Erro: GESTOR_EMAIL não foi definido no arquivo .env")
