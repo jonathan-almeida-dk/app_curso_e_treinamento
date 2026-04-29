@@ -465,6 +465,12 @@ def main():
     st.caption("Acompanhamento de treinamentos obrigatórios, pendências, atrasos e conclusões.")
     st.markdown("---")
     init_db()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            DELETE FROM employees
+            WHERE employee_name IS NULL OR employee_name = ''
+            OR role IS NULL OR role = ''
+        """))
     importar_csv_inicial_se_banco_vazio()
     st.sidebar.header("Menu de operações")
     uploaded = st.sidebar.file_uploader("Importar planilha de treinamentos (CSV/XLSX)", type=['csv','xlsx'])
@@ -702,6 +708,12 @@ def main():
         st.subheader("Agendar novo treinamento")
 
         df_employees = pd.read_sql("SELECT employee_id, employee_name, role FROM employees", engine)
+        df_invalidos = df_employees[df_employees[['employee_name', 'role']].isna().any(axis=1)]
+
+        if not df_invalidos.empty:
+            st.warning("Existem colaboradores com dados incompletos no banco:")
+            st.dataframe(df_invalidos, use_container_width=True)
+        df_employees = df_employees.dropna(subset=['employee_name', 'role'])
         df_courses = pd.read_sql("SELECT course_id, course_name FROM courses", engine)
 
         lista_colaboradores = {
