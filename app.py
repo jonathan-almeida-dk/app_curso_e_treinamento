@@ -12,7 +12,12 @@ import os
 from dotenv import load_dotenv
 import subprocess
 import sys
+import locale
 
+try:
+    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+except:
+    locale.setlocale(locale.LC_TIME, 'Portuguese_Brazil')
 load_dotenv()
 
 # Conexão SQLite (arquivo local)
@@ -465,7 +470,7 @@ def main():
     st.caption("Acompanhamento de treinamentos obrigatórios, pendências, atrasos e conclusões.")
     st.markdown("---")
     init_db()
-    
+
     with engine.begin() as conn:
         conn.execute(text("""
             DELETE FROM employees
@@ -667,17 +672,24 @@ def main():
                 else:
                     try:
                         with engine.begin() as conn:
-                            conn.execute(text("""
-                                INSERT OR REPLACE INTO employees (employee_id, employee_name, role)
-                                VALUES (:employee_id, :employee_name, :role)
-                            """), dict(
-                                employee_id=str(novo_emp_id),
-                                employee_name=novo_emp_name.strip(),
-                                role=novo_emp_role.strip()
-                            ))
+                            existente = conn.execute(text("""
+                                SELECT 1 FROM employees WHERE employee_id = :employee_id
+                            """), {"employee_id": str(novo_emp_id)}).fetchone()
 
-                        st.success("Colaborador cadastrado com sucesso.")
-                        st.rerun()
+                            if existente:
+                                st.error("❌ Já existe um colaborador com esse ID. Use outro.")
+                            else:
+                                conn.execute(text("""
+                                    INSERT INTO employees (employee_id, employee_name, role)
+                                    VALUES (:employee_id, :employee_name, :role)
+                                """), dict(
+                                    employee_id=str(novo_emp_id),
+                                    employee_name=novo_emp_name.strip(),
+                                    role=novo_emp_role.strip()
+                                ))
+
+                                st.success("Colaborador cadastrado com sucesso.")
+                                st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao cadastrar colaborador: {e}")
         st.subheader("Cadastro de treinamentos")
@@ -741,7 +753,12 @@ def main():
                     options=list(lista_cursos.keys())
                 )
 
-                date_scheduled = st.date_input("Data agendada", datetime.today().date())
+                date_scheduled = st.date_input(
+                    "Data agendada",
+                    datetime.today().date(),
+                    format="DD/MM/YYYY"
+                )
+                
                 freq = st.number_input("Periodicidade em meses (use 0 se for único)", min_value=0, value=12)
 
                 add_sub = st.form_submit_button("Adicionar")
