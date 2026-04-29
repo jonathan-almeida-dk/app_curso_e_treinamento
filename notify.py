@@ -41,12 +41,21 @@ def compute_due(df):
         )
 
         due_date = None
-        if ref_date and t['frequency_months']:
-            month = ref_date.month - 1 + int(t['frequency_months'])
-            year = ref_date.year + month // 12
-            month = month % 12 + 1
-            day = min(ref_date.day, 28)
-            due_date = datetime(year, month, day).date()
+
+        freq = t['frequency_months']
+
+        if ref_date and pd.notna(freq):
+            try:
+                freq = int(freq)
+            except:
+                freq = 0
+
+            if freq > 0:
+                month = ref_date.month - 1 + freq
+                year = ref_date.year + month // 12
+                month = month % 12 + 1
+                day = min(ref_date.day, 28)
+                due_date = datetime(year, month, day).date()
 
         status = 'Concluído' if pd.notna(t['date_completed']) and str(t['date_completed']).strip() != "" else 'Pendente'
 
