@@ -465,6 +465,7 @@ def main():
     st.caption("Acompanhamento de treinamentos obrigatórios, pendências, atrasos e conclusões.")
     st.markdown("---")
     init_db()
+    
     with engine.begin() as conn:
         conn.execute(text("""
             DELETE FROM employees
