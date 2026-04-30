@@ -477,7 +477,7 @@ def main():
             WHERE employee_name IS NULL OR employee_name = ''
             OR role IS NULL OR role = ''
         """))
-    importar_csv_inicial_se_banco_vazio()
+    #importar_csv_inicial_se_banco_vazio()
     st.sidebar.header("Menu de operações")
     uploaded = st.sidebar.file_uploader("Importar planilha de treinamentos (CSV/XLSX)", type=['csv','xlsx'])
     
@@ -624,9 +624,11 @@ def main():
                             training_id = opcoes_treinamento[treinamento_escolhido]
 
                             with engine.begin() as conn:
+
                                 conn.execute(text("""
                                     UPDATE trainings
-                                    SET date_completed = :dc, evidence = :ev
+                                    SET date_completed = :dc,
+                                        evidence = :ev
                                     WHERE id = :tid
                                 """), dict(
                                     dc=completed_date.isoformat(),
