@@ -162,14 +162,13 @@ def init_db():
             email TEXT
         );
         """))
-
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS courses (
             course_id TEXT PRIMARY KEY,
-            course_name TEXT
+            course_name TEXT,
+            duration_minutes INTEGER
         );
         """))
-
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS trainings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,21 +178,10 @@ def init_db():
             date_completed TEXT,
             frequency_months INTEGER,
             evidence TEXT,
-            UNIQUE(employee_id, course_id, date_scheduled),
             FOREIGN KEY(employee_id) REFERENCES employees(employee_id),
             FOREIGN KEY(course_id) REFERENCES courses(course_id)
         );
         """))
-
-        # 🔥 índices (ponto 11)
-        conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_trainings_employee ON trainings(employee_id);
-        """))
-
-        conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_trainings_course ON trainings(course_id);
-        """))
-
 
 # Função para importar CSV/XLSX e salvar no DB
 def import_file(uploaded):
@@ -201,92 +189,32 @@ def import_file(uploaded):
         df = pd.read_excel(uploaded)
     else:
         df = pd.read_csv(uploaded)
-
-    expected = [
-        'employee_id','employee_name','role','email',
-        'course_id','course','date_scheduled',
-        'date_completed','frequency_months','evidence'
-    ]
-
+    # Normalizar colunas mínimas esperadas
+    expected = ['employee_id','employee_name','role','email','course_id','course','date_scheduled','date_completed','frequency_months','evidence']
     for col in expected:
         if col not in df.columns:
             df[col] = None
-
-    # 🔥 validação (ponto 9)
-    df = df[df['employee_id'].notna() & df['course_id'].notna()]
-
-    records = df.to_dict(orient="records")  # 🔥 ponto 6
-
+    # Salvar employees e courses e trainings
     with engine.begin() as conn:
-        for row in records:
-
-            # datas seguras
-            date_scheduled = pd.to_datetime(row['date_scheduled'], errors="coerce")
-            date_completed = pd.to_datetime(row['date_completed'], errors="coerce")
-
+        for _, row in df.iterrows():
             conn.execute(text("""
-                INSERT INTO employees (employee_id, employee_name, role, email)
+                INSERT OR REPLACE INTO employees (employee_id, employee_name, role, email)
                 VALUES (:employee_id, :employee_name, :role, :email)
-                ON CONFLICT(employee_id) DO UPDATE SET
-                    employee_name=excluded.employee_name,
-                    role=excluded.role,
-                    email=excluded.email
-            """), {
-                "employee_id": str(row['employee_id']),
-                "employee_name": str(row['employee_name']) if pd.notna(row['employee_name']) else "",
-                "role": str(row['role']) if pd.notna(row['role']) else "",
-                "email": str(row['email']) if pd.notna(row['email']) else None
-            })
-
+            """), dict(employee_id=str(row['employee_id']), employee_name=row['employee_name'] or '',
+                     role=row['role'] or '', email=row['email'] or ''))
             conn.execute(text("""
-                INSERT INTO courses (course_id, course_name)
+                INSERT OR REPLACE INTO courses (course_id, course_name)
                 VALUES (:course_id, :course_name)
-                ON CONFLICT(course_id) DO UPDATE SET
-                    course_name=excluded.course_name
-            """), {
-                "course_id": str(row['course_id']),
-                "course_name": str(row['course']) if pd.notna(row['course']) else ""
-            })
-
+            """), dict(course_id=str(row['course_id']), course_name=row['course'] or ''))
             conn.execute(text("""
-                INSERT INTO trainings (
-                    employee_id, course_id, date_scheduled,
-                    date_completed, frequency_months, evidence
-                )
-                VALUES (:employee_id, :course_id, :date_scheduled,
-                        :date_completed, :frequency_months, :evidence)
-                ON CONFLICT(employee_id, course_id, date_scheduled)
-                DO UPDATE SET
-                    date_completed=excluded.date_completed,
-                    frequency_months=excluded.frequency_months,
-                    evidence=excluded.evidence
-            """), {
-                "employee_id": str(row['employee_id']),
-                "course_id": str(row['course_id']),
-                "date_scheduled": date_scheduled.date().isoformat() if pd.notna(date_scheduled) else None,
-                "date_completed": date_completed.date().isoformat() if pd.notna(date_completed) else None,
-                "frequency_months": int(row['frequency_months']) if pd.notna(row['frequency_months']) else None,
-                "evidence": row['evidence'] if pd.notna(row['evidence']) else None
-            })
-
+                INSERT INTO trainings (employee_id, course_id, date_scheduled, date_completed, frequency_months, evidence)
+                VALUES (:employee_id, :course_id, :date_scheduled, :date_completed, :frequency_months, :evidence)
+            """), dict(employee_id=str(row['employee_id']), course_id=str(row['course_id']),
+                       date_scheduled=str(row['date_scheduled']) if pd.notna(row['date_scheduled']) else None,
+                       date_completed=str(row['date_completed']) if pd.notna(row['date_completed']) else None,
+                       frequency_months=int(row['frequency_months']) if pd.notna(row['frequency_months']) else None,
+                       evidence=row['evidence'] or None))
     st.success("Importação concluída")
-
-def salvar_colaborador_individual(id_emp, nome, cargo):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            INSERT OR REPLACE INTO employees (employee_id, employee_name, role)
-            VALUES (:id, :nome, :cargo)
-        """), dict(id=str(id_emp), nome=nome, cargo=cargo))
-    st.success(f"Colaborador {nome} salvo!")
-
-def salvar_curso_individual(id_curso, nome_curso):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            INSERT OR REPLACE INTO courses (course_id, course_name)
-            VALUES (:id, :nome)
-        """), dict(id=str(id_curso), nome=nome_curso))
-    st.success(f"Treinamento {nome_curso} salvo!")
-
 
 def compute_status(df_trainings):
     today = datetime.today().date()
@@ -296,12 +224,17 @@ def compute_status(df_trainings):
         date_scheduled = None
         date_completed = None
 
-        # Substitua o trecho dentro do loop for na função compute_status:
-        if pd.notna(t['date_scheduled']):
-            date_scheduled = pd.to_datetime(t['date_scheduled'], errors="coerce").date()
-        
-        if pd.notna(t['date_completed']):
-            date_completed = pd.to_datetime(t['date_completed']).date()
+        if pd.notna(t['date_scheduled']) and str(t['date_scheduled']).strip() != "":
+            try:
+                date_scheduled = datetime.fromisoformat(str(t['date_scheduled'])).date()
+            except:
+                date_scheduled = None
+
+        if pd.notna(t['date_completed']) and str(t['date_completed']).strip() != "":
+            try:
+                date_completed = datetime.fromisoformat(str(t['date_completed'])).date()
+            except:
+                date_completed = None
 
         due_date = None
 
@@ -346,7 +279,6 @@ def compute_status(df_trainings):
         })
 
     return pd.DataFrame(rows)
-
 def preparar_tabela_exibicao(df_base):
     df_exibir = df_base.copy()
 
@@ -486,7 +418,7 @@ def importar_csv_inicial_se_banco_vazio():
                         VALUES (:employee_id, :employee_name, :role, :email)
                     """), dict(
                         employee_id=str(row['employee_id']),
-                        employee_name=pd.notna(row['employee_name']) and row['employee_name'] or '',
+                        employee_name=row['employee_name'] or '',
                         role=row['role'] or '',
                         email=row['email'] if 'email' in row and pd.notna(row['email']) else None
                     ))
@@ -517,6 +449,8 @@ def importar_csv_inicial_se_banco_vazio():
             st.error(f"Erro ao importar dados iniciais automaticamente: {e}")
 
     return False
+
+    send_email(gestor_email, assunto, mensagem)
 # Interface Streamlit
 def main():
     inicializar_sessao()
@@ -531,8 +465,13 @@ def main():
     st.caption("Acompanhamento de treinamentos obrigatórios, pendências, atrasos e conclusões.")
     st.markdown("---")
     init_db()
-
-    #importar_csv_inicial_se_banco_vazio()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            DELETE FROM employees
+            WHERE employee_name IS NULL OR employee_name = ''
+            OR role IS NULL OR role = ''
+        """))
+    importar_csv_inicial_se_banco_vazio()
     st.sidebar.header("Menu de operações")
     uploaded = st.sidebar.file_uploader("Importar planilha de treinamentos (CSV/XLSX)", type=['csv','xlsx'])
     
@@ -679,11 +618,9 @@ def main():
                             training_id = opcoes_treinamento[treinamento_escolhido]
 
                             with engine.begin() as conn:
-
                                 conn.execute(text("""
                                     UPDATE trainings
-                                    SET date_completed = :dc,
-                                        evidence = :ev
+                                    SET date_completed = :dc, evidence = :ev
                                     WHERE id = :tid
                                 """), dict(
                                     dc=completed_date.isoformat(),
@@ -729,24 +666,17 @@ def main():
                 else:
                     try:
                         with engine.begin() as conn:
-                            existente = conn.execute(text("""
-                                SELECT 1 FROM employees WHERE employee_id = :employee_id
-                            """), {"employee_id": str(novo_emp_id)}).fetchone()
+                            conn.execute(text("""
+                                INSERT OR REPLACE INTO employees (employee_id, employee_name, role)
+                                VALUES (:employee_id, :employee_name, :role)
+                            """), dict(
+                                employee_id=str(novo_emp_id),
+                                employee_name=novo_emp_name.strip(),
+                                role=novo_emp_role.strip()
+                            ))
 
-                            if existente:
-                                st.error("❌ Já existe um colaborador com esse ID. Use outro.")
-                            else:
-                                conn.execute(text("""
-                                    INSERT INTO employees (employee_id, employee_name, role)
-                                    VALUES (:employee_id, :employee_name, :role)
-                                """), dict(
-                                    employee_id=str(novo_emp_id),
-                                    employee_name=novo_emp_name.strip(),
-                                    role=novo_emp_role.strip()
-                                ))
-
-                                st.success("Colaborador cadastrado com sucesso.")
-                                st.rerun()
+                        st.success("Colaborador cadastrado com sucesso.")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao cadastrar colaborador: {e}")
         st.subheader("Cadastro de treinamentos")
@@ -762,23 +692,16 @@ def main():
                 else:
                     try:
                         with engine.begin() as conn:
-                            existente = conn.execute(text("""
-                                SELECT 1 FROM courses WHERE course_id = :course_id
-                            """), {"course_id": str(novo_course_id)}).fetchone()
+                            conn.execute(text("""
+                                INSERT OR REPLACE INTO courses (course_id, course_name)
+                                VALUES (:course_id, :course_name)
+                            """), dict(
+                                course_id=str(novo_course_id),
+                                course_name=novo_course_name.strip()
+                            ))
 
-                            if existente:
-                                st.error("❌ Já existe um treinamento com esse ID. Use outro.")
-                            else:
-                                conn.execute(text("""
-                                    INSERT INTO courses (course_id, course_name)
-                                    VALUES (:course_id, :course_name)
-                                """), dict(
-                                    course_id=str(novo_course_id),
-                                    course_name=novo_course_name.strip()
-                                ))
-
-                                st.success("Treinamento cadastrado com sucesso.")
-                                st.rerun()
+                        st.success("Treinamento cadastrado com sucesso.")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao cadastrar treinamento: {e}")
 
@@ -817,12 +740,7 @@ def main():
                     options=list(lista_cursos.keys())
                 )
 
-                date_scheduled = st.date_input(
-                    "Data agendada",
-                    datetime.today().date(),
-                    format="DD/MM/YYYY"
-                )
-                
+                date_scheduled = st.date_input("Data agendada", datetime.today().date())
                 freq = st.number_input("Periodicidade em meses (use 0 se for único)", min_value=0, value=12)
 
                 add_sub = st.form_submit_button("Adicionar")
@@ -831,13 +749,8 @@ def main():
                     emp_id = lista_colaboradores[colaborador_escolhido]
                     course_id = lista_cursos[curso_escolhido]
 
-                    try:
-                        nome, resto = colaborador_escolhido.split(" (", 1)
-                        emp_name = nome
-                        emp_role = resto.replace(")", "")
-                    except:
-                        emp_name = colaborador_escolhido
-                        emp_role = "Não informado"
+                    emp_name = colaborador_escolhido.split(" (")[0]
+                    emp_role = colaborador_escolhido.split(" (")[1].replace(")", "")
                     course_name = curso_escolhido
 
                     with engine.begin() as conn:
@@ -864,5 +777,16 @@ def main():
                     except Exception as e:
                         st.warning(f"Treinamento salvo, mas houve falha ao enviar o e-mail ao gestor: {e}")
                     st.rerun()
+                    try:
+                        enviar_email_gestor_novo_treinamento(
+                            emp_name=emp_name,
+                            emp_role=emp_role,
+                            course_name=course_name,
+                            date_scheduled=date_scheduled.isoformat(),
+                            freq=int(freq)
+                        )
+                        st.info("E-mail de notificação enviado ao gestor com sucesso.")
+                    except Exception as e:
+                        st.warning(f"Treinamento salvo, mas houve falha ao enviar o e-mail ao gestor: {e}")
 if __name__ == "__main__":
     main()
