@@ -705,16 +705,23 @@ def main():
                 else:
                     try:
                         with engine.begin() as conn:
-                            conn.execute(text("""
-                                INSERT OR REPLACE INTO courses (course_id, course_name)
-                                VALUES (:course_id, :course_name)
-                            """), dict(
-                                course_id=str(novo_course_id),
-                                course_name=novo_course_name.strip()
-                            ))
+                            existente = conn.execute(text("""
+                                SELECT 1 FROM courses WHERE course_id = :course_id
+                            """), {"course_id": str(novo_course_id)}).fetchone()
 
-                        st.success("Treinamento cadastrado com sucesso.")
-                        st.rerun()
+                            if existente:
+                                st.error("❌ Já existe um treinamento com esse ID. Use outro.")
+                            else:
+                                conn.execute(text("""
+                                    INSERT INTO courses (course_id, course_name)
+                                    VALUES (:course_id, :course_name)
+                                """), dict(
+                                    course_id=str(novo_course_id),
+                                    course_name=novo_course_name.strip()
+                                ))
+
+                                st.success("Treinamento cadastrado com sucesso.")
+                                st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao cadastrar treinamento: {e}")
 
