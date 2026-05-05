@@ -76,6 +76,7 @@ O sistema possui dois perfis:
 * **RH**
 
   * Visualização dos dados
+  * Cadastro de treinamentos e colaboradores
   * Acompanhamento dos treinamentos
 
 ---
