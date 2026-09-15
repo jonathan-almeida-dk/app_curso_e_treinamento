@@ -136,7 +136,7 @@ def main():
     linhas.append("\nEquipe de Qualidade")
 
     corpo_email = "\n".join(linhas)
-    assunto = "[HAIRAM] Resumo de treinamentos pendentes e atrasados"
+    assunto = "[NOME DA EMPRESA] Resumo de treinamentos pendentes e atrasados"
 
     try:
         send_email(GESTOR_EMAIL, assunto, corpo_email)
